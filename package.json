@@ -1,0 +1,54 @@
+{
+  "name": "envault",
+  "version": "0.1.0",
+  "description": "Framework-agnostic envelope encryption for Node.js with pluggable KDF strategies and NestJS support.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "envelope-encryption",
+    "kdf",
+    "pbkdf2",
+    "scrypt",
+    "argon2",
+    "aes-256-gcm",
+    "nestjs",
+    "crypto",
+    "encryption"
+  ],
+  "author": "Son Nguyen",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "optionalDependencies": {
+    "argon2": "^0.31.0"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.2.7"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": {
+      "optional": true
+    }
+  }
+}
