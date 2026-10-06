@@ -1,4 +1,4 @@
-# envault
+# envelock
 
 Framework-agnostic envelope encryption for Node.js. A random data key encrypts your payload. A key derived from a secret encrypts that data key. The secret never has to be stored.
 
@@ -9,7 +9,7 @@ The design is motivated by anonymous storage: systems that have no account and n
 ## Install
 
 ```bash
-npm install envault
+npm install envelock
 ```
 
 Argon2id needs the optional native package:
@@ -44,7 +44,7 @@ GCM authentication tags reject a wrong key and tampered ciphertext.
 ## Quick start
 
 ```ts
-import { EnvelopeCore, PBKDF2Strategy } from 'envault';
+import { EnvelopeCore, PBKDF2Strategy } from 'envelock';
 
 const envelope = new EnvelopeCore({
   apiKey: { prefix: 'ev' },
@@ -76,7 +76,7 @@ try {
 
 ```ts
 import { Module } from '@nestjs/common';
-import { EnvelopeEncryptionModule, PBKDF2Strategy } from 'envault';
+import { EnvelopeEncryptionModule, PBKDF2Strategy } from 'envelock';
 
 @Module({
   imports: [
@@ -119,7 +119,7 @@ constructor(private readonly envelope: EnvelopeEncryptionService) {}
 PBKDF2 is fast to attack on GPUs when the secret is a user-chosen password. Use scrypt or Argon2id for those secrets.
 
 ```ts
-import { ScryptStrategy, Argon2idStrategy } from 'envault';
+import { ScryptStrategy, Argon2idStrategy } from 'envelock';
 
 new ScryptStrategy({ N: 16384, r: 8, p: 1 });
 new Argon2idStrategy({ memoryCost: 65536, timeCost: 3, parallelism: 1 });

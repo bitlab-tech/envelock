@@ -1,5 +1,5 @@
 {
-  "name": "envault",
+  "name": "envelock",
   "version": "0.1.0",
   "description": "Framework-agnostic envelope encryption for Node.js with pluggable KDF strategies and NestJS support.",
   "main": "./dist/index.js",

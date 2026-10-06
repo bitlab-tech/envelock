@@ -28,7 +28,7 @@ function loadArgon2(): Argon2Module {
     return argon2Module;
   } catch {
     throw new Error(
-      '[envault] Argon2idStrategy requires the optional "argon2" package. ' +
+      '[envelock] Argon2idStrategy requires the optional "argon2" package. ' +
         'Install it with: npm install argon2',
     );
   }
