@@ -2,6 +2,8 @@
 
 **Secure per-user data isolation using API-key-derived envelope encryption**
 
+An analysis of this design in [ASD-STE100](https://www.asd-ste100.org/) Simplified Technical English is in [analysis.md](analysis.md).
+
 ## The problem
 
 Agentic systems often need to persist user data: conversation history, tool outputs, intermediate results etc. so future interactions can reuse context.

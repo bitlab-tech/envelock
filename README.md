@@ -4,7 +4,7 @@ Framework-agnostic envelope encryption for Node.js. A random data key encrypts y
 
 AES-256-GCM is built in. Key derivation is pluggable: PBKDF2 and scrypt ship with Node, Argon2id is optional. NestJS can inject the same core through a dynamic module.
 
-The design is motivated by anonymous storage: systems that have no account and no server-side identity, only an API key. The write-up in [docs/README.md](docs/README.md) covers why plaintext storage, a server-managed key, and using the API key itself as the cipher key each fall short, and how an API-key-derived envelope (KEK wraps a random DEK, nothing long-lived is stored) provides per-user isolation, key rotation by re-wrapping, and the limits of that model.
+The design is motivated by anonymous storage: systems that have no account and no server-side identity, only an API key. The write-up in [docs/README.md](docs/README.md) covers why plaintext storage, a server-managed key, and using the API key itself as the cipher key each fall short, and how an API-key-derived envelope (KEK wraps a random DEK, nothing long-lived is stored) provides per-user isolation, key rotation by re-wrapping, and the limits of that model. An analysis in ASD-STE100 Simplified Technical English is in [docs/analysis.md](docs/analysis.md).
 
 ## Install
 
