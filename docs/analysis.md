@@ -1,5 +1,49 @@
 # Analysis of envelope encryption
 
+<!-- TOC start (generated with https://github.com/derlin/bitdowntoc) -->
+
+- [Analysis of envelope encryption](#analysis-of-envelope-encryption)
+   * [1. How this document is written](#1-how-this-document-is-written)
+   * [2. Technical words](#2-technical-words)
+   * [3. Problem](#3-problem)
+      + [3.1. Stored plaintext](#31-stored-plaintext)
+      + [3.2. A key that the server stores](#32-a-key-that-the-server-stores)
+      + [3.3. The API key as the cipher key](#33-the-api-key-as-the-cipher-key)
+   * [4. Solution](#4-solution)
+      + [4.1. Mechanism and architecture](#41-mechanism-and-architecture)
+      + [4.2. Challenges](#42-challenges)
+         - [Challenge C1. No name for the user](#challenge-c1-no-name-for-the-user)
+         - [Challenge C2. The API key is not a cipher key](#challenge-c2-the-api-key-is-not-a-cipher-key)
+         - [Challenge C3. KDF time](#challenge-c3-kdf-time)
+         - [Challenge C4. Keys in memory](#challenge-c4-keys-in-memory)
+         - [Challenge C5. One salt for many users](#challenge-c5-one-salt-for-many-users)
+         - [Challenge C6. A change to the ciphertext](#challenge-c6-a-change-to-the-ciphertext)
+         - [Challenge C7. KDF memory](#challenge-c7-kdf-memory)
+         - [Challenge C8. One DEK for one API key](#challenge-c8-one-dek-for-one-api-key)
+         - [Challenge C9. A fast hash](#challenge-c9-a-fast-hash)
+         - [Challenge C10. Erase does not remove all copies](#challenge-c10-erase-does-not-remove-all-copies)
+         - [Challenge C11. A new API key](#challenge-c11-a-new-api-key)
+         - [Challenge C12. The argon2 package](#challenge-c12-the-argon2-package)
+      + [4.3. Techniques](#43-techniques)
+         - [Technique for challenge C1](#technique-for-challenge-c1)
+         - [Technique for challenge C2](#technique-for-challenge-c2)
+         - [Technique for challenge C3](#technique-for-challenge-c3)
+         - [Technique for challenges C4 and C10](#technique-for-challenges-c4-and-c10)
+         - [Technique for challenge C5](#technique-for-challenge-c5)
+         - [Technique for challenge C6](#technique-for-challenge-c6)
+         - [Technique for challenge C7](#technique-for-challenge-c7)
+         - [Technique for challenge C8](#technique-for-challenge-c8)
+         - [Technique for challenge C9](#technique-for-challenge-c9)
+         - [Technique for challenge C11](#technique-for-challenge-c11)
+         - [Technique for challenge C12](#technique-for-challenge-c12)
+         - [Procedure: Change the API key](#procedure-change-the-api-key)
+   * [5. Result](#5-result)
+      + [5.1. Improvement](#51-improvement)
+      + [5.2. Limits](#52-limits)
+      + [5.3. Performance](#53-performance)
+
+<!-- TOC end -->
+
 ## 1. How this document is written
 
 This analysis obeys [ASD-STE100](https://www.asd-ste100.org/) Issue 9.
