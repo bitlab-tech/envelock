@@ -1,6 +1,6 @@
 {
   "name": "envelock",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Framework-agnostic envelope encryption for Browser with pluggable KDF strategies.",
   "repository": {
     "type": "git",
