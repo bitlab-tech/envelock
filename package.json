@@ -1,13 +1,26 @@
 {
   "name": "envelock",
-  "version": "0.1.0",
-  "description": "Framework-agnostic envelope encryption for Node.js with pluggable KDF strategies and NestJS support.",
+  "version": "0.2.0",
+  "description": "Framework-agnostic envelope encryption for Browser with pluggable KDF strategies.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bitlab-tech/envelock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bitlab-tech/envelock/issues"
+  },
+  "homepage": "https://github.com/bitlab-tech/envelock",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js"
+    },
+    "./verify": {
+      "types": "./dist/shared/index.d.ts",
+      "import": "./dist/shared/index.js"
     }
   },
   "files": [
@@ -23,32 +36,26 @@
   },
   "keywords": [
     "envelope-encryption",
-    "kdf",
-    "pbkdf2",
-    "scrypt",
-    "argon2",
+    "hkdf",
+    "sha256",
+    "ed25519",
     "aes-256-gcm",
-    "nestjs",
     "crypto",
     "encryption"
   ],
   "author": "Son Nguyen",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^22.20.5",
-    "ts-node": "^10.9.2",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },
-  "optionalDependencies": {
-    "argon2": "^0.31.0"
+  "dependencies": {
+    "@noble/ed25519": "^3.2.0",
+    "@noble/hashes": "^2.4.0"
   },
-  "peerDependencies": {
-    "@nestjs/common": "^11.2.7"
-  },
-  "peerDependenciesMeta": {
-    "@nestjs/common": {
-      "optional": true
-    }
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20",
+    "browser": ">=100"
   }
 }

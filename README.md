@@ -1,10 +1,35 @@
 # envelock
 
-Framework-agnostic envelope encryption for Node.js. A random data key encrypts your payload. A key derived from a secret encrypts that data key. The secret never has to be stored.
+Framework-agnostic envelope encryption for the browser, with client-side key
+derivation, Ed25519 request signing, and zero-knowledge storage: the server
+never sees an API key, a derived key, or plaintext, at any point.
 
-AES-256-GCM is built in. Key derivation is pluggable: PBKDF2 and scrypt ship with Node, Argon2id is optional. NestJS can inject the same core through a dynamic module.
+> **Design docs:** the reasoning and protocol behind this library live in
+> [`docs/v1.md`](./docs/v1.md) (original design) and
+> [`docs/v2.md`](./docs/v2.md) (fix-up addendum closing the API-key-in-transit
+> gap, introducing Ed25519 request signing, and the current envelope
+> encryption flow). This README covers how to *use* the library. Those docs
+> cover *why* it's built this way, including the threat model, the
+> alternatives considered and rejected, and the key rotation protocol.
 
-The design is motivated by anonymous storage: systems that have no account and no server-side identity, only an API key. The write-up in [docs/README.md](docs/README.md) covers why plaintext storage, a server-managed key, and using the API key itself as the cipher key each fall short, and how an API-key-derived envelope (KEK wraps a random DEK, nothing long-lived is stored) provides per-user isolation, key rotation by re-wrapping, and the limits of that model. An analysis in ASD-STE100 Simplified Technical English is in [docs/analysis.md](docs/analysis.md).
+## What this is
+
+A user holds exactly one secret: an API key, generated client-side. From it,
+the library derives two independent things, via domain-separated HKDF:
+
+- An **Ed25519 keypair**, used to sign every request. Only the public key
+  ever reaches the server.
+- A **KEK seed**, used to derive a fresh, independent wrapping key for every
+  item you encrypt. Each item gets its own random salt, its own random DEK,
+  and its own AEAD-bound ciphertext.
+
+The server authenticates requests by verifying signatures against a stored
+public key, and persists only ciphertext and non-secret metadata (salts,
+wrapped keys, item IDs). It is never sent, and can never derive, anything
+capable of decrypting user data. See [`docs/v2.md`](./docs/v2.md) for the
+full protocol, diagrams, and the specific vulnerability this closes relative
+to a naive "derive the key from the API key you send on every request"
+design.
 
 ## Install
 
@@ -12,166 +37,201 @@ The design is motivated by anonymous storage: systems that have no account and n
 npm install envelock
 ```
 
-Argon2id needs the optional native package:
-
-```bash
-npm install argon2
-```
-
-NestJS usage needs `@nestjs/common` (optional peer dependency).
-
-## How it works
-
-```
-secret (API key, token, …)
-        │
-        ▼
-   KDF + salt  ──►  KEK          (derived per request, never stored)
-        │
-        ▼
-   AES-256-GCM ──►  encrypted DEK   (persisted)
-        │
-        ▼
-   AES-256-GCM ──►  ciphertext      (your data)
-```
-
-1. **Create.** Generate an API key, derive a key-encryption key (KEK) from it, generate a data-encryption key (DEK), and encrypt the DEK with the KEK.
-2. **Store.** Persist the API key hash, the salt, and the encrypted DEK. Return the raw API key to the caller once.
-3. **Use.** Hash the presented API key to look up the record, re-derive the KEK, decrypt the DEK, then encrypt or decrypt data. Zero the DEK when you are done.
-
-GCM authentication tags reject a wrong key and tampered ciphertext.
+Requires a runtime with the Web Crypto API (`crypto.subtle`,
+`crypto.getRandomValues`, `crypto.randomUUID`): any modern browser, or
+Node.js 20+.
 
 ## Quick start
 
-```ts
-import { EnvelopeCore, PBKDF2Strategy } from 'envelock';
+### Register a new user
 
-const envelope = new EnvelopeCore({
-  apiKey: { prefix: 'ev' },
-  kdf: { strategy: new PBKDF2Strategy() },
-});
+```typescript
+import { EnvelopeClient } from "envelock";
 
-// Once, when issuing a key
-const { apiKey, hash } = envelope.generateApiKey();
-const material = await envelope.generateKeyMaterial(apiKey);
+const { client, displayKey, mainSalt } = await EnvelopeClient.create("myapp");
 
-// Persist `hash`, `material.salt`, and `material.encryptedDek`.
-// Hand `apiKey` to the caller. Do not store it.
+// displayKey: show this to the user ONCE. There is no recovery if it's lost:
+// see "Lost keys are unrecoverable, by design" below.
+// mainSalt: non-secret. Send this and client.getPublicKey() to your server
+// at registration time. You'll need mainSalt again to reconstruct this
+// client in a future session.
 
-// On each request
-const dek = await envelope.resolveDataKey(apiKey, material);
-try {
-  const encrypted = envelope.encrypt(Buffer.from('payload'), dek);
-  const plain = envelope.decrypt(encrypted, dek);
-} finally {
-  dek.fill(0);
-}
-```
-
-`EncryptedPayload` is three `Buffer`s: `ciphertext`, `iv`, and `authTag`. Encode them (for example base64) before writing to a database, and decode them before calling `decrypt` or `resolveDataKey`.
-
-## NestJS
-
-`EnvelopeEncryptionModule` is global by default and exports `EnvelopeEncryptionService`, which is `EnvelopeCore` with dependency injection.
-
-```ts
-import { Module } from '@nestjs/common';
-import { EnvelopeEncryptionModule, PBKDF2Strategy } from 'envelock';
-
-@Module({
-  imports: [
-    EnvelopeEncryptionModule.forRoot({
-      apiKey: { prefix: 'ev' },
-      kdf: { strategy: new PBKDF2Strategy() },
-    }),
-  ],
-})
-export class AppModule {}
-```
-
-Async registration, for example from `ConfigService`:
-
-```ts
-EnvelopeEncryptionModule.forRootAsync({
-  imports: [ConfigModule],
-  inject: [ConfigService],
-  useFactory: (config: ConfigService) => ({
-    apiKey: { prefix: config.getOrThrow('API_KEY_PREFIX') },
-    kdf: { strategy: new PBKDF2Strategy() },
+await fetch("/api/register", {
+  method: "POST",
+  body: JSON.stringify({
+    publicKey: toBase64Url(client.getPublicKey()),
+    mainSalt: toBase64Url(mainSalt),
   }),
 });
 ```
 
-Pass `isGlobal: false` when the module should stay local to the importing module.
+### Resume a session
 
-```ts
-constructor(private readonly envelope: EnvelopeEncryptionService) {}
+```typescript
+const client = await EnvelopeClient.fromApiKey(
+  displayKey,     // what the user entered/pasted
+  mainSalt,       // fetched from your server, non-secret
+  "myapp",        // the same prefix used at registration
+);
 ```
 
-## Choosing a KDF
+### Sign a request
 
-| Strategy | Dependency | Use when |
-| --- | --- | --- |
-| `PBKDF2Strategy` | none | The secret is high-entropy (API keys, random tokens). Default is 600,000 iterations of HMAC-SHA256. |
-| `ScryptStrategy` | none | You want a memory-hard KDF without a native addon. Default cost is `N = 16384`, `r = 8`, `p = 1`. |
-| `Argon2idStrategy` | `argon2` | You want the memory-hard default for passwords. Default is 64 MiB, 3 iterations, parallelism 1. |
+```typescript
+const request = new Request("https://api.example.com/v1/items", {
+  method: "POST",
+  body: JSON.stringify({ ... }),
+});
 
-PBKDF2 is fast to attack on GPUs when the secret is a user-chosen password. Use scrypt or Argon2id for those secrets.
-
-```ts
-import { ScryptStrategy, Argon2idStrategy } from 'envelock';
-
-new ScryptStrategy({ N: 16384, r: 8, p: 1 });
-new Argon2idStrategy({ memoryCost: 65536, timeCost: 3, parallelism: 1 });
+const signedRequest = await client.signRequest(request);
+await fetch(signedRequest);
 ```
 
-Instantiating `Argon2idStrategy` without `argon2` installed throws when `derive` runs, with a message that names the missing package.
+This attaches timestamp, nonce, and signature headers covering the method,
+path, timestamp, nonce, and a hash of the exact request body. See
+[`docs/v2.md`](./docs/v2.md) for the canonical string format and the
+server-side verification/replay-protection design.
 
-## API
+### Encrypt and decrypt an item
 
-### `EnvelopeCore`
+```typescript
+const plaintext = new TextEncoder().encode("secret data");
+const encrypted = await client.encryptItem(plaintext);
+// { blob, itemSalt, itemUuid, encryptedDEK }
+// blob and encryptedDEK are self-contained (IV prepended to each
+// ciphertext): nothing else needs to be stored or transmitted alongside
+// them beyond itemSalt and itemUuid.
 
-| Method | Returns | Role |
-| --- | --- | --- |
-| `generateApiKey()` | `{ apiKey, hash }` | Random key `{prefix}_{secret}` plus its SHA-256 hex hash. |
-| `hashApiKey(apiKey)` | `string` | SHA-256 hex digest for lookup. |
-| `generateKeyMaterial(secret)` | `{ salt, encryptedDek }` | Salt, KEK, DEK, and encrypted DEK. KEK and raw DEK are zeroed before return. |
-| `resolveDataKey(secret, material)` | `Buffer` | Re-derives the KEK, decrypts the DEK, zeroes the KEK. Caller zeroes the DEK. |
-| `encrypt(data, key)` | `EncryptedPayload` | AES-256-GCM with a fresh IV. |
-| `decrypt(payload, key)` | `Buffer` | Throws when the auth tag does not match. |
-| `generateDEK()` / `encryptDEK()` / `decryptDEK()` | | Lower-level DEK helpers. `generateKeyMaterial` and `resolveDataKey` cover the usual path. |
-| `generateSalt()` / `deriveKEK(secret, salt)` | | Lower-level KDF helpers. |
-
-### Config
-
-```ts
-interface EnvelopeConfig {
-  apiKey: {
-    prefix: string;
-    secretLength?: number; // default 32 bytes, encoded base64url
-  };
-  kdf: {
-    strategy: KDFStrategy;
-  };
-  aes?: {
-    algorithm?: string; // default 'aes-256-gcm'
-    ivLength?: number;  // default 12
-    keyLength?: number; // default 32
-  };
-}
+const recovered = await client.decryptItem(encrypted);
+// recovered equals plaintext: or decryptItem throws, if the ciphertext,
+// AAD, or key material don't match (tampering, wrong item, wrong key).
 ```
 
-Bring your own `KDFStrategy` by implementing `derive(secret, salt)` and `generateSalt()`.
+### Rotate keys
 
-## What to persist
+```typescript
+const { client: newClient, displayKey: newDisplayKey, mainSalt: newMainSalt } =
+  await EnvelopeClient.create("myapp");
 
-| Value | Store it? |
-| --- | --- |
-| Raw API key | No. Return it once. |
-| API key hash | Yes. Lookup key. |
-| Salt | Yes. Required to re-derive the KEK. |
-| Encrypted DEK (`ciphertext`, `iv`, `authTag`) | Yes. |
-| KEK or raw DEK | No. Derive and decrypt in memory, then `buffer.fill(0)`. |
+// Fetch every item's { itemUuid, itemSalt, encryptedDEK } from your server first.
+const rotatedItems = await client.rotate(newClient, existingItems);
+
+// Submit rotatedItems + newClient.getPublicKey() to your server, signed with
+// the OLD client (per the rotation protocol in docs/v2.md): the old key
+// authorizes its own replacement, then is revoked.
+```
+
+Rotation re-wraps every item's DEK under the new key without touching file
+ciphertext or re-uploading anything: see the "Key Rotation" diagram in
+[`docs/v2.md`](./docs/v2.md) for the full client/server sequence, including
+why the submission step is still signed with the old key.
+
+## Server-side verification
+
+Import from the `envelock/verify` subpath: a deliberately narrow surface
+containing only what a server needs to verify signed requests. It has no
+access to signing, key derivation, or encryption functions. Those are only
+reachable from the main `envelock` entry point, which is meant for
+client-side use.
+
+```typescript
+import { buildCanonicalString, verifyEd25519 } from "envelock/verify";
+
+// Rebuild the identical canonical string the client signed, from the
+// request your server actually received: not from client-claimed values.
+const canonical = await buildCanonicalString(request);
+
+const isValid = verifyEd25519(
+  storedPublicKey,
+  new TextEncoder().encode(canonical),
+  signatureFromHeader,
+);
+```
+
+Your server is responsible for the surrounding checks that make this a
+complete authentication scheme: timestamp tolerance validation, atomic
+nonce-uniqueness enforcement, and looking up the stored public key for the
+claimed sender. The full server-side flow, including why nonce handling
+needs to be an atomic `(pubkey, nonce)` insert rather than a
+check-then-write, is documented in [`docs/v2.md`](./docs/v2.md)'s
+"Authentication" section and diagram.
+
+**One practical note:** `buildCanonicalString` hashes the exact raw bytes of
+the request body. Most server frameworks parse and consume the body stream
+before your own middleware runs, which means you'll typically need to
+configure raw-body capture ahead of the body parser on routes that verify
+signed requests, so the bytes you hash match what the client actually sent.
+
+## Why two entry points
+
+| Import path | Contains | Intended for |
+|---|---|---|
+| `envelock` | `EnvelopeClient` and its full capability: key derivation, signing, encryption, rotation | Browser clients |
+| `envelock/verify` | `buildCanonicalString`, `verifyEd25519`, and other pure, secret-free utilities | Backend servers |
+
+This split is enforced by the package's `exports` map, not just by
+convention: `envelock/client` or any other internal path is not resolvable
+from outside the package. A server importing `envelock/verify` has no way to
+reach key-derivation or signing code, even by accident.
+
+## Security properties
+
+Summarized from [`docs/v2.md`](./docs/v2.md): see that document for the
+full reasoning and the specific attack each property closes:
+
+- **The server never transmits, stores, or can derive anything capable of
+  decrypting user data.** A full database and traffic compromise exposes
+  only public keys, ciphertext, and non-secret salts/IDs.
+- **No credential reuse window.** Requests are signed, not bearer-token
+  authenticated. A captured signed request is useless outside its
+  nonce/timestamp window.
+- **Per-item isolation.** Every item has its own salt, its own randomly
+  generated DEK, and its own AAD-bound ciphertext. A single leaked wrapped
+  key exposes exactly one item, not a user's entire history.
+- **Tamper-evidence via AAD.** Both AEAD operations (file encryption and
+  DEK-wrapping) bind the item's own ID as associated data: a storage-layer
+  swap between two valid ciphertexts fails decryption outright rather than
+  silently succeeding against the wrong context.
+- **Lost keys are unrecoverable, by design.** There is no account-recovery
+  flow. A user who loses their API key loses access to their data
+  permanently: any mechanism that could recover it would equally have
+  allowed a party other than the user to decrypt their data, which defeats
+  the purpose of the design. Show the key once at generation, and make sure
+  your UI gets explicit confirmation it's been saved.
+
+## Project structure
+
+```
+src/
+├── core/        : primitives with no domain knowledge (random, encoding,
+│                  hashing, HKDF, AES-GCM, shared constants)
+├── identity/    : API key generation/parsing, Ed25519 keypair derivation
+├── auth/        : canonical request strings, nonce generation, request signing
+├── envelope/    : per-item key derivation, encryption, decryption
+├── rotation/    : key rotation (unwrap-under-old, rewrap-under-new)
+├── client.ts    : EnvelopeClient, the public client-facing API
+├── types.ts     : shared type definitions
+├── client/      : public export surface for browser consumers (re-exports client.ts)
+└── shared/      : public export surface for server consumers (re-exports
+                     only secret-free verification utilities)
+```
+
+`core/` has no awareness of API keys, items, or requests: it's reusable
+cryptographic plumbing. Every layer above it adds domain meaning but never
+reaches backward into a lower layer's internals. `identity/` is the only
+place that ever handles the main seed or private key directly. Every other
+module receives already-derived, scoped material.
+
+## Development
+
+```bash
+npm install
+npm run build        # compile to dist/
+npm run dev           # compile in watch mode
+npm run typecheck      # type-check src/ and test/
+npm test                # run the test suite
+npm run test:watch       # run tests in watch mode
+```
 
 ## License
 

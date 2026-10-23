@@ -1,0 +1,29 @@
+src/
+├── core/
+│   ├── random.ts            — crypto.getRandomValues wrappers, nothing else
+│   ├── encoding.ts          — base64url / hex encode-decode, toBase64Url/fromBase64Url
+│   ├── hkdf.ts              — importKey + deriveBits wrapper, domain-separated labels
+│   └── constants.ts         — byte lengths (32, 12), HKDF info labels, KDF params
+│
+├── identity/
+│   ├── keygen.ts            — generateMainSeed(), deriveSigningSeed(), deriveKekSeed()
+│   ├── ed25519.ts           — wraps @noble/ed25519: deriveKeyPair, sign, verify
+│   └── apiKey.ts            — display-key encode/decode (prefix handling), NOT base64-decoding the prefix
+│
+├── auth/
+│   ├── canonicalRequest.ts  — builds method+path+timestamp+nonce+bodyHash string
+│   ├── signer.ts            — signs a request, attaches headers
+│   └── nonce.ts             — client-side nonce generation (random, not counter)
+│
+├── envelope/
+│   ├── itemKey.ts            — deriveItemKek(kekSeed, itemUuid) via HKDF
+│   ├── encrypt.ts            — encryptItem(plaintext) → { ciphertext, encryptedDEK, contentIV, wrapIV, itemUuid }
+│   └── decrypt.ts            — decryptItem({...}) → plaintext, throws on auth-tag failure
+│
+├── rotation/
+│   └── rotate.ts             — orchestrates: fetch old items, unwrap all, derive new
+│                                identity, rewrap all, submit — calls into identity/
+│                                and envelope/, owns no crypto of its own
+│
+├── client.ts                 — the public-facing API surface
+└── types.ts                  — shared interfaces (EncryptedItem, SignedRequest, etc.)
