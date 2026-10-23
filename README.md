@@ -14,19 +14,22 @@ never sees an API key, a derived key, or plaintext, at any point.
 
 ## What this is
 
-A user holds exactly one secret: an API key, generated client-side. From it,
-the library derives two independent things, via domain-separated HKDF:
+A user holds exactly one secret: an API key, generated client-side. The key
+carries both the seed and the HKDF salt, so the salt never has to be stored
+or sent to the server. From it, the library derives two independent things,
+via domain-separated HKDF:
 
 - An **Ed25519 keypair**, used to sign every request. Only the public key
   ever reaches the server.
 - A **KEK seed**, used to derive a fresh, independent wrapping key for every
-  item you encrypt. Each item gets its own random salt, its own random DEK,
+  item you encrypt. Each storage item gets its own random salt, its own random DEK,
   and its own AEAD-bound ciphertext.
 
 The server authenticates requests by verifying signatures against a stored
-public key, and persists only ciphertext and non-secret metadata (salts,
-wrapped keys, item IDs). It is never sent, and can never derive, anything
-capable of decrypting user data. See [`docs/v2.md`](./docs/v2.md) for the
+public key, and persists only ciphertext and non-secret metadata (per-item
+salts, wrapped keys, item IDs). The main salt stays inside the user's API
+key. The server is never sent, and can never derive, anything capable of
+decrypting user data. See [`docs/v2.md`](./docs/v2.md) for the
 full protocol, diagrams, and the specific vulnerability this closes relative
 to a naive "derive the key from the API key you send on every request"
 design.
@@ -47,20 +50,20 @@ Node.js 20+.
 
 ```typescript
 import { EnvelopeClient } from "envelock";
+import { toBase64Url } from "envelock/verify";
 
-const { client, displayKey, mainSalt } = await EnvelopeClient.create("myapp");
+const { client, displayKey } = await EnvelopeClient.create("myapp");
 
-// displayKey: show this to the user ONCE. There is no recovery if it's lost:
-// see "Lost keys are unrecoverable, by design" below.
-// mainSalt: non-secret. Send this and client.getPublicKey() to your server
-// at registration time. You'll need mainSalt again to reconstruct this
-// client in a future session.
+// displayKey: show this to the user ONCE. It contains the seed and the main
+// salt, so a later session can be restored from this string alone. There is
+// no recovery if it is lost: see "Lost keys are unrecoverable, by design"
+// below.
+// The server only needs the public key.
 
 await fetch("/api/register", {
   method: "POST",
   body: JSON.stringify({
     publicKey: toBase64Url(client.getPublicKey()),
-    mainSalt: toBase64Url(mainSalt),
   }),
 });
 ```
@@ -69,9 +72,8 @@ await fetch("/api/register", {
 
 ```typescript
 const client = await EnvelopeClient.fromApiKey(
-  displayKey,     // what the user entered/pasted
-  mainSalt,       // fetched from your server, non-secret
-  "myapp",        // the same prefix used at registration
+  displayKey, // what the user entered or pasted
+  "myapp",    // the same prefix used at registration
 );
 ```
 
@@ -110,15 +112,16 @@ const recovered = await client.decryptItem(encrypted);
 ### Rotate keys
 
 ```typescript
-const { client: newClient, displayKey: newDisplayKey, mainSalt: newMainSalt } =
+const { client: newClient, displayKey: newDisplayKey } =
   await EnvelopeClient.create("myapp");
 
+// Show newDisplayKey to the user once. It already contains the new main salt.
 // Fetch every item's { itemUuid, itemSalt, encryptedDEK } from your server first.
 const rotatedItems = await client.rotate(newClient, existingItems);
 
-// Submit rotatedItems + newClient.getPublicKey() to your server, signed with
+// Submit rotatedItems and newClient.getPublicKey() to your server, signed with
 // the OLD client (per the rotation protocol in docs/v2.md): the old key
-// authorizes its own replacement, then is revoked.
+// authorizes its own replacement, then is revoked. Do not send a main salt.
 ```
 
 Rotation re-wraps every item's DEK under the new key without touching file
@@ -181,7 +184,8 @@ full reasoning and the specific attack each property closes:
 
 - **The server never transmits, stores, or can derive anything capable of
   decrypting user data.** A full database and traffic compromise exposes
-  only public keys, ciphertext, and non-secret salts/IDs.
+  only public keys, ciphertext, and non-secret per-item salts and IDs. The
+  main salt is part of the user's API key and is not stored on the server.
 - **No credential reuse window.** Requests are signed, not bearer-token
   authenticated. A captured signed request is useless outside its
   nonce/timestamp window.

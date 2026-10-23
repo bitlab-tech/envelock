@@ -1,11 +1,10 @@
 import { rotate } from "./rotation/rotate.js";
 import { signRequest } from "./auth/signer.js";
-import { SALT_BYTES } from "./core/constants.js";
 import { decryptItem } from "./envelope/decrypt.js";
 import { encryptItem } from "./envelope/encrypt.js";
 import { generateEd25519KeyPair } from "./identity/ed25519.js";
 import { generateApiKey, parseApiKey } from "./identity/apiKey.js";
-import { deriveKekSeed, deriveSigningSeed, generateSalt } from "./identity/keygen.js";
+import { deriveKekSeed, deriveSigningSeed } from "./identity/keygen.js";
 import type { Ed25519KeyPair, EncryptedItem, WrappedDekRecord } from "./types.js";
 
 function assert(condition: boolean, message?: string): asserts condition {
@@ -45,9 +44,9 @@ export class EnvelopeClient {
     apiKeyPrefix: string
   ): Promise<{ client: EnvelopeClient, displayKey: string, mainSalt: Uint8Array<ArrayBuffer> }> {
     const client = new EnvelopeClient();
-    const { seed, displayKey } = generateApiKey(apiKeyPrefix);
+    const { seed, salt, displayKey } = generateApiKey(apiKeyPrefix);
     client.mainSeed = seed;
-    client.mainSalt = generateSalt();
+    client.mainSalt = salt;
     client.signingSeed = await deriveSigningSeed(client.mainSalt, client.mainSeed);
     client.signingKeyPair = await generateEd25519KeyPair(client.signingSeed);
     client.kekSeed = await deriveKekSeed(client.mainSalt, client.mainSeed);
@@ -57,22 +56,14 @@ export class EnvelopeClient {
   /**
    * Creates a new client from an API key.
    * @param displayApiKey - The display API key.
-   * @param mainSalt - The main salt.
    * @param apiKeyPrefix - The prefix of the API key.
    * @returns A new client.
    */
-  static async fromApiKey(
-    displayApiKey: string,
-    mainSalt: Uint8Array<ArrayBuffer>,
-    apiKeyPrefix: string
-  ): Promise<EnvelopeClient> {
-    assert(
-      displayApiKey !== undefined && mainSalt.length === SALT_BYTES && apiKeyPrefix !== undefined,
-      "Invalid parameters"
-    );
+  static async fromApiKey(displayApiKey: string, apiKeyPrefix: string): Promise<EnvelopeClient> {
     const client = new EnvelopeClient();
-    client.mainSeed = parseApiKey(displayApiKey, apiKeyPrefix);
-    client.mainSalt = mainSalt;
+    const { seed, salt } = parseApiKey(displayApiKey, apiKeyPrefix);
+    client.mainSeed = seed;
+    client.mainSalt = salt;
     client.signingSeed = await deriveSigningSeed(client.mainSalt, client.mainSeed);
     client.signingKeyPair = await generateEd25519KeyPair(client.signingSeed);
     client.kekSeed = await deriveKekSeed(client.mainSalt, client.mainSeed);
