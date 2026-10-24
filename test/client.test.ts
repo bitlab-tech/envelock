@@ -17,14 +17,13 @@ const prefix = 'ev';
 const nonce = '11111111-1111-4111-8111-111111111111';
 
 describe('EnvelopeClient.create', () => {
-  it('returns a display key whose embedded salt is the client salt', async () => {
-    const { client, displayKey, mainSalt } = await EnvelopeClient.create(prefix);
+  it('returns a display key that embeds a 32-byte seed and salt', async () => {
+    const { client, displayKey } = await EnvelopeClient.create(prefix);
     const parsed = parseApiKey(displayKey, prefix);
 
     expect(displayKey.startsWith(`${prefix}_`)).toBe(true);
     expect(parsed.seed).toHaveLength(32);
-    expect(parsed.salt).toEqual(mainSalt);
-    expect(mainSalt).toHaveLength(SALT_BYTES);
+    expect(parsed.salt).toHaveLength(SALT_BYTES);
     expect(client.getPublicKey()).toHaveLength(ED25519_KEY_BYTES);
   });
 

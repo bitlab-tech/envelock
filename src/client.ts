@@ -38,11 +38,11 @@ export class EnvelopeClient {
   /**
    * Creates a new client with a new API key.
    * @param apiKeyPrefix - The prefix of the API key.
-   * @returns A tuple containing the client, the display key, and the main salt.
+   * @returns A tuple containing the client and the display key.
    */
   static async create(
     apiKeyPrefix: string
-  ): Promise<{ client: EnvelopeClient, displayKey: string, mainSalt: Uint8Array<ArrayBuffer> }> {
+  ): Promise<{ client: EnvelopeClient, displayKey: string }> {
     const client = new EnvelopeClient();
     const { seed, salt, displayKey } = generateApiKey(apiKeyPrefix);
     client.mainSeed = seed;
@@ -50,7 +50,7 @@ export class EnvelopeClient {
     client.signingSeed = await deriveSigningSeed(client.mainSalt, client.mainSeed);
     client.signingKeyPair = await generateEd25519KeyPair(client.signingSeed);
     client.kekSeed = await deriveKekSeed(client.mainSalt, client.mainSeed);
-    return { client, displayKey, mainSalt: client.mainSalt };
+    return { client, displayKey };
   }
 
   /**
