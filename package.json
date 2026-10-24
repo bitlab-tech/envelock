@@ -1,7 +1,7 @@
 {
   "name": "envelock",
-  "version": "0.2.1",
-  "description": "Framework-agnostic envelope encryption for Browser with pluggable KDF strategies.",
+  "version": "0.2.2",
+  "description": "Framework-agnostic envelope encryption for the browser: client-side key derivation, Ed25519 request signing, zero-knowledge storage.",
   "repository": {
     "type": "git",
     "url": "https://github.com/bitlab-tech/envelock.git"
